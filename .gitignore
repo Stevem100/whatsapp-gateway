@@ -1,0 +1,15 @@
+# dependencies
+node_modules/
+
+# env & secrets
+.env
+.env.local
+
+# local runtime data
+db/
+generated/
+*.log
+
+# build artifacts
+*.zip
+*.tgz
