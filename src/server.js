@@ -4,7 +4,7 @@ const cors = require('cors')
 const config = require('./config')
 const prisma = require('./db')
 const { requireApiKey } = require('./apikey')
-const { HttpError } = require('./utils/helpers')
+const { HttpError, ah } = require('./utils/helpers')
 const sessionManager = require('./wa/sessionManager')
 
 const sessionsRouter = require('./routes/sessions')
@@ -31,7 +31,9 @@ function buildApp() {
     })
   })
 
-  app.get('/api/health', async (req, res) => {
+  // wrapped in ah() so a Prisma failure returns a 500 JSON error instead of
+  // becoming an unhandled rejection that kills the whole process (Node >= 15)
+  app.get('/api/health', ah(async (req, res) => {
     const sessions = await prisma.session.findMany({ select: { status: true } })
     res.json({
       ok: true,
@@ -47,7 +49,7 @@ function buildApp() {
         connected: sessions.filter((s) => s.status === 'connected').length,
       },
     })
-  })
+  }))
 
   app.use('/api/sessions/:id/groups', requireApiKey, groupsRouter)
   app.use('/api/sessions/:id/messages', requireApiKey, messagesRouter)
@@ -104,6 +106,16 @@ function startServer() {
 
   process.on('SIGINT', () => shutdown('SIGINT'))
   process.on('SIGTERM', () => shutdown('SIGTERM'))
+
+  // Keep the gateway alive on stray async errors. Node >= 15 terminates the
+  // process on an unhandled rejection by default, which on cPanel/LiteSpeed
+  // leaves the site serving 503 until a manual restart.
+  process.on('unhandledRejection', (reason) => {
+    console.error('[gateway] unhandledRejection:', reason)
+  })
+  process.on('uncaughtException', (err) => {
+    console.error('[gateway] uncaughtException:', err)
+  })
 
   sessionManager.resumeSessions().catch((err) =>
     console.error(`[gateway] boot resume failed: ${err.message}`)
