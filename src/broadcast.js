@@ -83,7 +83,10 @@ async function createBroadcast({ sessionId, message, targets, minDelayMs, maxDel
     throw badRequest('Field "targets" is required: an array of phone numbers or JIDs (phones and @g.us groups)')
   }
   if (targets.length > 500) throw badRequest('Too many targets (max 500 per broadcast)')
-  const session = await prisma.session.findUnique({ where: { id: sessionId } })
+  // accept session id or unique session name
+  const session = await prisma.session.findFirst({
+    where: { OR: [{ id: sessionId }, { name: sessionId }] },
+  })
   if (!session) {
     const err = new Error('Session not found')
     err.status = 404
@@ -98,7 +101,7 @@ async function createBroadcast({ sessionId, message, targets, minDelayMs, maxDel
   const jids = targets.map((t) => normalizeToJid(t))
   const row = await prisma.broadcast.create({
     data: {
-      sessionId,
+      sessionId: session.id,
       message: String(message),
       targets: JSON.stringify(jids),
       total: jids.length,

@@ -43,9 +43,12 @@ async function validateStoreBody(body, { partial = false, current = null } = {})
   if (!partial || body.sessionId !== undefined) {
     const sessionId = String(body.sessionId || '').trim()
     if (!sessionId) throw new HttpError(400, 'Field "sessionId" is required')
-    const session = await prisma.session.findUnique({ where: { id: sessionId } })
+    // accept session id or unique session name, store the resolved id
+    const session = await prisma.session.findFirst({
+      where: { OR: [{ id: sessionId }, { name: sessionId }] },
+    })
     if (!session) throw new HttpError(404, 'Session not found')
-    out.sessionId = sessionId
+    out.sessionId = session.id
   }
   if (!partial || body.name !== undefined) {
     const name = String(body.name || '').trim()

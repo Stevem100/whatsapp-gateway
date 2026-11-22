@@ -42,7 +42,10 @@ async function findOrderOr404(id) {
 }
 
 async function loadSession(sessionId) {
-  return prisma.session.findUnique({ where: { id: sessionId } })
+  // sessionId may be an id or a unique session name
+  return prisma.session.findFirst({
+    where: { OR: [{ id: sessionId }, { name: sessionId }] },
+  })
 }
 
 // Best-effort WhatsApp notification to the customer chat.

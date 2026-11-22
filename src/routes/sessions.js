@@ -36,8 +36,11 @@ async function seedDemoRules(sessionId) {
   await prisma.botRule.createMany({ data: DEMO_RULES.map((r) => ({ ...r, sessionId })) })
 }
 
-async function findSessionOr404(id) {
-  const row = await prisma.session.findUnique({ where: { id } })
+// Resolve a session by its id OR by its unique name (nicer for raw API/curl use).
+async function findSessionOr404(idOrName) {
+  const row = await prisma.session.findFirst({
+    where: { OR: [{ id: idOrName }, { name: idOrName }] },
+  })
   if (!row) throw new HttpError(404, 'Session not found')
   return row
 }

@@ -40,6 +40,8 @@ function buildApp() {
       uptimeSec: Math.floor(process.uptime()),
       authRequired: true,
       keyHint: config.apiKeyHint || null,
+      node: process.version,
+      cwd: process.cwd(),
       sessions: {
         total: sessions.length,
         connected: sessions.filter((s) => s.status === 'connected').length,

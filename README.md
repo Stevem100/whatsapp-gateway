@@ -56,6 +56,27 @@ directly with curl - every request needs the header `x-api-key: <your key>`.
 | `RECONNECT_DELAY_MS` | `5000` | Delay between retries |
 | `MAX_MEDIA_BYTES` | `26214400` (25 MB) | Cap for outbound media downloads |
 
+## Deploy to cPanel (shared hosting)
+
+The gateway ships as a self-contained cPanel bundle (source + production
+`node_modules`, so **no npm install on the server**) plus a one-command deployer
+that drives the cPanel UAPI with an API token: upload -> extract -> register the
+Node.js (Passenger) app -> restart -> health check.
+
+- Deployer + bundle + guide: `download/cpanel-deploy/` (`deploy-cpanel.sh`,
+  `whatsapp-gateway-cpanel.zip`, `DEPLOY-GUIDE.md`)
+- Production API key: baked into the bundle `.env`, also in `API-KEY.txt`
+- Sessions are stored in SQLite (`db/gateway.db`) and survive restarts;
+  sessions auto-reconnect on boot (`AUTO_RECONNECT=true`)
+
+```bash
+CPANEL_HOST=cpanel.yourdomain.com CPANEL_USER=USER CPANEL_TOKEN=TOKEN bash deploy-cpanel.sh
+```
+
+On cPanel, sessions resolve by **id or name** in the URL
+(`/api/sessions/main/connect`, `/api/sessions/main/qr`), which keeps raw
+`curl` usage pleasant without the dashboard.
+
 ## REST API
 
 Base URL: `/api` - all routes except `/health` require `x-api-key`.

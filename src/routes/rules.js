@@ -6,8 +6,11 @@ const router = express.Router({ mergeParams: true })
 
 const MATCH_TYPES = ['exact', 'contains', 'starts_with', 'regex']
 
-async function findSessionOr404(id) {
-  const row = await prisma.session.findUnique({ where: { id } })
+// Resolve a session by its id OR by its unique name (nicer for raw API/curl use).
+async function findSessionOr404(idOrName) {
+  const row = await prisma.session.findFirst({
+    where: { OR: [{ id: idOrName }, { name: idOrName }] },
+  })
   if (!row) throw new HttpError(404, 'Session not found')
   return row
 }
@@ -70,9 +73,9 @@ router.post('/', ah(async (req, res) => {
 
 // PATCH /api/sessions/:id/rules/:ruleId
 router.patch('/:ruleId', ah(async (req, res) => {
-  await findSessionOr404(req.params.id)
+  const session = await findSessionOr404(req.params.id)
   const existing = await prisma.botRule.findUnique({ where: { id: req.params.ruleId } })
-  if (!existing || existing.sessionId !== req.params.id) throw new HttpError(404, 'Rule not found')
+  if (!existing || existing.sessionId !== session.id) throw new HttpError(404, 'Rule not found')
   const data = validateRule(req.body || {}, { partial: true })
   const rule = await prisma.botRule.update({ where: { id: existing.id }, data })
   res.json({ rule })
@@ -80,9 +83,9 @@ router.patch('/:ruleId', ah(async (req, res) => {
 
 // DELETE /api/sessions/:id/rules/:ruleId
 router.delete('/:ruleId', ah(async (req, res) => {
-  await findSessionOr404(req.params.id)
+  const session = await findSessionOr404(req.params.id)
   const existing = await prisma.botRule.findUnique({ where: { id: req.params.ruleId } })
-  if (!existing || existing.sessionId !== req.params.id) throw new HttpError(404, 'Rule not found')
+  if (!existing || existing.sessionId !== session.id) throw new HttpError(404, 'Rule not found')
   await prisma.botRule.delete({ where: { id: existing.id } })
   res.json({ ok: true })
 }))

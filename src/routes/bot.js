@@ -21,13 +21,15 @@ router.post('/test', ah(async (req, res) => {
   if (!chatJid) throw new HttpError(400, 'Field "chatJid" is required (customer phone digits or full JID)')
   if (!text) throw new HttpError(400, 'Field "text" is required')
 
-  const session = await prisma.session.findUnique({ where: { id: sessionId } })
+  const session = await prisma.session.findFirst({
+    where: { OR: [{ id: sessionId }, { name: sessionId }] },
+  })
   if (!session) throw new HttpError(404, 'Session not found')
 
   const normalizedJid = chatJid.includes('@') ? chatJid : `${chatJid.replace(/\D/g, '')}@s.whatsapp.net`
   const ctx = { remoteJid: normalizedJid, body: text, pushName: body.pushName || 'Test Customer' }
 
-  const sock = dryRun ? null : sessionManager.requireConnectedSocket(sessionId)
+  const sock = dryRun ? null : sessionManager.requireConnectedSocket(session.id)
 
   const commerce = await runCommerceBot(session, sock, ctx, { dryRun })
   if (commerce) {
