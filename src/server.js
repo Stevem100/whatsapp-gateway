@@ -10,6 +10,11 @@ const sessionManager = require('./wa/sessionManager')
 const sessionsRouter = require('./routes/sessions')
 const messagesRouter = require('./routes/messages')
 const rulesRouter = require('./routes/rules')
+const groupsRouter = require('./routes/groups')
+const storesRouter = require('./routes/stores')
+const ordersRouter = require('./routes/orders')
+const broadcastsRouter = require('./routes/broadcasts')
+const botRouter = require('./routes/bot')
 
 function buildApp() {
   const app = express()
@@ -42,9 +47,14 @@ function buildApp() {
     })
   })
 
+  app.use('/api/sessions/:id/groups', requireApiKey, groupsRouter)
   app.use('/api/sessions/:id/messages', requireApiKey, messagesRouter)
   app.use('/api/sessions/:id/rules', requireApiKey, rulesRouter)
   app.use('/api/sessions', requireApiKey, sessionsRouter)
+  app.use('/api/stores', requireApiKey, storesRouter)
+  app.use('/api/orders', requireApiKey, ordersRouter)
+  app.use('/api/broadcasts', requireApiKey, broadcastsRouter)
+  app.use('/api/bot', requireApiKey, botRouter)
 
   app.use((req, res) => {
     res.status(404).json({ error: `Not found: ${req.method} ${req.path}` })

@@ -1,8 +1,9 @@
 # WhatsApp Gateway
 
-A self-hosted **multi-session WhatsApp bot gateway**: it logs into real WhatsApp
-accounts using the WhatsApp Web multi-device protocol ([Baileys](https://github.com/WhiskeySockets/Baileys))
-and exposes a clean REST API plus a web dashboard.
+A self-hosted **multi-session WhatsApp bot gateway with conversational commerce**:
+it logs into real WhatsApp accounts using the WhatsApp Web multi-device protocol
+([Baileys](https://github.com/WhiskeySockets/Baileys)) and exposes a clean REST API
+plus a web dashboard.
 
 Built with **Express + Baileys + Prisma (SQLite)**, protected by an API key.
 
@@ -12,8 +13,13 @@ Built with **Express + Baileys + Prisma (SQLite)**, protected by an API key.
 - **Send API** - text, image, video, document (from URL or base64) and location messages
 - **Receive** - every incoming message is stored in SQLite (chats + message history)
 - **Auto-reply bot** - per-session keyword rules (`exact`, `contains`, `starts_with`, `regex`), priority ordered, hit counters, on/off switch
-- **Event webhooks** - forward incoming/outgoing messages, bot replies and connection changes to any URL
-- **Dashboard** - sessions list, QR login, chat inbox, send box, rule editor, webhook tester
+- **Conversational commerce** - customers chat to browse the catalog, add to cart, checkout, pay and track orders (see Shop below)
+- **E-commerce integrations** - connect **WooCommerce**, **Shopify**, your own coded site (HTTP contract) or a manual catalog; products sync, orders are pushed to the platform
+- **Payments** - store-native payment pages (Woo order-pay / Shopify invoice), **Stripe Checkout** links, or manual instructions (M-Pesa paybill, bank, cash)
+- **Group communities** - list groups, join by invite link, members/invite-link management, group broadcasts
+- **Broadcasts** - one message to many chats/groups, delivered sequentially with randomised anti-ban delays, live progress
+- **Event webhooks** - forward messages, bot replies, order and connection events to any URL
+- **Dashboard** - sessions, QR login, inbox, send box, rule editor, store manager, orders, broadcast composer, group manager, webhook tester
 - **Persistence** - Baileys credentials and signal keys are stored in SQLite, so sessions survive restarts
 - **Auto-reconnect** - configurable retries with backoff; `logged out` clears credentials
 
@@ -111,7 +117,67 @@ Send body examples:
 
 Incoming **text** messages are matched against enabled rules ordered by
 priority (desc); the first match replies and its hit counter increments. A
-3-second per-chat cooldown prevents bot loops.
+3-second per-chat cooldown prevents bot loops. When the session has an active
+store, the **commerce bot runs first** and keyword rules act as fallback.
+
+### Shop - conversational commerce
+
+Connect a store to a session, then customers order by chat. The bot answers
+`hi`, `catalog`, `add 2 [qty]`, `cart`, `remove 1`, `clear`, `checkout`,
+`orders`, `pay <n>`, `cancel <n>`, `help` (private chats by default;
+`groupChat: true` also serves groups).
+
+| Method | Path | Body / notes |
+| --- | --- | --- |
+| `POST` | `/api/stores` | `{sessionId, name, type: woocommerce\|shopify\|custom\|manual, baseUrl, credentials, currency, paymentProvider, paymentConfig, groupChat}` |
+| `GET` | `/api/stores` | list (`?sessionId=` filter) |
+| `GET/PATCH/DELETE` | `/api/stores/:id` | detail / update / disconnect |
+| `POST` | `/api/stores/:id/test` | verify platform credentials |
+| `POST` | `/api/stores/:id/sync` | pull products from Woo/Shopify/custom site |
+| `GET/POST` | `/api/stores/:id/products` | catalog list / add manual product |
+| `PATCH/DELETE` | `/api/stores/:id/products/:pid` | update / remove product |
+| `GET` | `/api/orders` | `?sessionId=&storeId=&chatJid=&status=&paymentStatus=&limit=` |
+| `GET` | `/api/orders/:id` | order detail |
+| `POST` | `/api/orders/:id/mark-paid` | `{paymentRef}` - syncs to platform, notifies the customer |
+| `POST` | `/api/orders/:id/cancel` | cancel + notify (unpaid orders only) |
+| `POST` | `/api/orders/:id/notify` | `{text}` - message the customer in chat |
+| `POST` | `/api/orders/:id/payment-link` | resend the payment URL / instructions |
+| `POST` | `/api/bot/test` | `{sessionId, chatJid, text, dryRun}` - simulate an incoming message through the bot pipeline |
+
+Payment providers: `store` (Woo order-pay URL / Shopify draft-order invoice),
+`manual` (custom instructions text), `stripe` (Checkout Session link; needs
+`paymentConfig.secretKey`). Orders are created in the connected platform
+(WooCommerce order, Shopify draft order, custom site contract) and kept locally
+with payment status; marking paid pushes the status back to the platform.
+
+Custom-site contract: `credentials.productsUrl` returns
+`{"products":[{externalId,name,price,sku,stock}]}` and
+`credentials.createOrderUrl` receives `{customer, currency, items}` and returns
+`{externalOrderId, paymentUrl}`.
+
+### Groups
+
+| Method | Path | Body / notes |
+| --- | --- | --- |
+| `GET` | `/api/sessions/:id/groups` | list joined groups |
+| `POST` | `/api/sessions/:id/groups/join` | `{"code": "https://chat.whatsapp.com/..."}` |
+| `GET` | `/api/sessions/:id/groups/:jid` | metadata + participants |
+| `POST` | `/api/sessions/:id/groups/:jid/leave` | leave the group |
+| `GET` | `/api/sessions/:id/groups/:jid/invite` | invite code + link (bot must be admin) |
+| `POST` | `/api/sessions/:id/groups/:jid/participants` | `{action: add\|remove\|promote\|demote, participants: [phones]}` |
+
+### Broadcasts
+
+| Method | Path | Body / notes |
+| --- | --- | --- |
+| `POST` | `/api/broadcasts` | `{sessionId, message, targets: [phones or @g.us jids], minDelayMs, maxDelayMs}` |
+| `GET` | `/api/broadcasts` | list with progress (`?sessionId=`) |
+| `GET` | `/api/broadcasts/:id` | detail incl. per-target results |
+| `POST` | `/api/broadcasts/:id/cancel` | stop a queued/running job |
+| `DELETE` | `/api/broadcasts/:id` | remove the record (not while running) |
+
+Delivered sequentially with a random delay between sends (default 1.5-4s) to
+stay ban-safe. Max 500 targets per job.
 
 ### Webhooks
 
@@ -123,7 +189,9 @@ priority (desc); the first match replies and its hit counter increments. A
 Forwarded events (POST JSON, 10s timeout):
 
 - `message.received` / `message.sent` - new messages
-- `bot.autoreplied` - a rule fired
+- `bot.autoreplied` - a keyword rule fired
+- `bot.commerce` - the shopping bot replied (action + reply)
+- `order.created` / `order.paid` / `order.cancelled` - commerce orders
 - `connection.qr` / `connection.open` / `connection.closed` / `connection.logged_out`
 
 Payload shape:
@@ -153,12 +221,15 @@ src/
   apikey.js              x-api-key middleware (timing-safe)
   db.js                  Prisma client (own SQLite file, immune to global DATABASE_URL)
   wa/
-    sessionManager.js    one Baileys socket per session: QR, reconnect, events, sending
+    sessionManager.js    one Baileys socket per session: QR, reconnect, events, sending, groups
     authState.js         Baileys auth state backed by SQLite (creds + signal keys)
-  bot/autoReply.js       rule matching engine
+  bot/autoReply.js       keyword rule matching engine
+  bot/commerce.js        conversational shopping bot (catalog/cart/checkout/payments)
+  stores/                platform connectors: woocommerce, shopify, custom + payments (Stripe)
+  broadcast.js           bulk-send worker (sequential + jitter delays)
   webhook/forwarder.js   event delivery
-  routes/                sessions, messages, rules routers
-prisma/schema.prisma     Session, WaKey, Message, BotRule
+  routes/                sessions, messages, rules, groups, stores, orders, broadcasts, bot
+prisma/schema.prisma     Session, WaKey, Message, BotRule, Store, Product, Cart, CartItem, Order, Broadcast
 db/gateway.db            SQLite database (created by db:push)
 generated/prisma         generated Prisma client
 ```

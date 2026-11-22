@@ -19,6 +19,20 @@ const MATCHERS = {
 const cooldowns = new Map()
 const COOLDOWN_MS = 3000
 
+// Find the first enabled rule matching the text (priority desc, then oldest).
+async function findMatchingRule(sessionId, text) {
+  const rules = await prisma.botRule.findMany({
+    where: { sessionId, enabled: true },
+    orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
+  })
+  for (const rule of rules) {
+    const matcher = MATCHERS[rule.matchType]
+    if (!matcher) continue
+    if (matcher(text, rule.keyword)) return rule
+  }
+  return null
+}
+
 async function runAutoReply(session, sock, incoming) {
   if (!session || !session.botEnabled || !sock) return null
   if (incoming.fromMe) return null
@@ -32,26 +46,18 @@ async function runAutoReply(session, sock, incoming) {
   const now = Date.now()
   if (now - last < COOLDOWN_MS) return null
 
-  const rules = await prisma.botRule.findMany({
-    where: { sessionId: session.id, enabled: true },
-    orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
-  })
+  const rule = await findMatchingRule(session.id, text)
+  if (!rule) return null
 
-  for (const rule of rules) {
-    const matcher = MATCHERS[rule.matchType]
-    if (!matcher) continue
-    if (!matcher(text, rule.keyword)) continue
-    cooldowns.set(cooldownKey, now)
-    try {
-      await sock.sendMessage(jid, { text: rule.reply })
-    } catch (err) {
-      console.log(`[bot] failed to reply for rule ${rule.id}: ${err.message}`)
-      return null
-    }
-    await prisma.botRule.update({ where: { id: rule.id }, data: { hits: { increment: 1 } } })
-    return rule
+  cooldowns.set(cooldownKey, now)
+  try {
+    await sock.sendMessage(jid, { text: rule.reply })
+  } catch (err) {
+    console.log(`[bot] failed to reply for rule ${rule.id}: ${err.message}`)
+    return null
   }
-  return null
+  await prisma.botRule.update({ where: { id: rule.id }, data: { hits: { increment: 1 } } })
+  return rule
 }
 
-module.exports = { runAutoReply }
+module.exports = { runAutoReply, findMatchingRule }

@@ -10,7 +10,11 @@ info:
     - Send text, image, video, document and location messages
     - Read the message inbox (chats + history)
     - Configure per-session keyword auto-reply rules
-    - Receive events (messages, bot replies, connection changes) via webhooks
+    - Conversational commerce: connect WooCommerce / Shopify / custom sites /
+      manual catalogs; customers browse, order and pay by chat
+    - Group communities (list, join, members, invite links)
+    - Broadcasts to many chats/groups with anti-ban delays
+    - Receive events (messages, bot replies, orders, connection changes) via webhooks
 
     Every route under `/api` requires the `x-api-key` header (or `?api_key=`
     query parameter), except `GET /api/health`.
@@ -28,6 +32,18 @@ tags:
     description: Inbox and sending
   - name: Rules
     description: Auto-reply bot rules
+  - name: Stores
+    description: E-commerce store connections (WooCommerce, Shopify, custom, manual)
+  - name: Products
+    description: Product catalog per store
+  - name: Orders
+    description: WhatsApp orders and payments
+  - name: Bot
+    description: Bot pipeline test endpoint
+  - name: Groups
+    description: WhatsApp group communities
+  - name: Broadcasts
+    description: Bulk sending jobs
   - name: Webhooks
     description: Event forwarding configuration
 security:
@@ -478,6 +494,676 @@ paths:
               schema: { $ref: '#/components/schemas/OkResponse' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/stores:
+    get:
+      summary: List stores
+      tags: [Stores]
+      parameters:
+        - name: sessionId
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  stores:
+                    type: array
+                    items: { $ref: '#/components/schemas/Store' }
+    post:
+      summary: Connect a store to a session
+      tags: [Stores]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StoreInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  store: { $ref: '#/components/schemas/Store' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/stores/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Store detail with counts
+      tags: [Stores]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  store: { $ref: '#/components/schemas/Store' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      summary: Update store settings
+      tags: [Stores]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StoreInput' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  store: { $ref: '#/components/schemas/Store' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      summary: Disconnect a store (deletes catalog + local orders)
+      tags: [Stores]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OkResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/stores/{id}/test:
+    post:
+      summary: Test the platform connection and credentials
+      tags: [Stores]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Result of the check
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  message: { type: string }
+
+  /api/stores/{id}/sync:
+    post:
+      summary: Sync products from the platform into the catalog
+      tags: [Stores]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Number of products synced
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  synced: { type: integer }
+                  total: { type: integer }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '502': { $ref: '#/components/responses/BadGateway' }
+
+  /api/stores/{id}/products:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: List catalog products
+      tags: [Products]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  products:
+                    type: array
+                    items: { $ref: '#/components/schemas/Product' }
+    post:
+      summary: Create/upsert a product (manual + custom catalogs)
+      tags: [Products]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  product: { $ref: '#/components/schemas/Product' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /api/stores/{id}/products/{pid}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+      - name: pid
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      summary: Update a product
+      tags: [Products]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductInput' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  product: { $ref: '#/components/schemas/Product' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      summary: Delete a product
+      tags: [Products]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OkResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/orders:
+    get:
+      summary: List orders (newest first)
+      tags: [Orders]
+      parameters:
+        - { name: sessionId, in: query, schema: { type: string } }
+        - { name: storeId, in: query, schema: { type: string } }
+        - { name: chatJid, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string, enum: [pending, paid, fulfilled, cancelled] } }
+        - { name: paymentStatus, in: query, schema: { type: string, enum: [unpaid, paid, failed] } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orders:
+                    type: array
+                    items: { $ref: '#/components/schemas/Order' }
+
+  /api/orders/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Order detail
+      tags: [Orders]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order: { $ref: '#/components/schemas/Order' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/orders/{id}/mark-paid:
+    post:
+      summary: Mark paid (syncs to platform, notifies the customer)
+      tags: [Orders]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                paymentRef: { type: string, description: e.g. M-Pesa transaction code }
+                notify: { type: boolean, default: true }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  order: { $ref: '#/components/schemas/Order' }
+                  externalUpdated: { type: boolean }
+                  notified: { type: boolean }
+                  alreadyPaid: { type: boolean }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/orders/{id}/cancel:
+    post:
+      summary: Cancel an unpaid order (notifies the customer)
+      tags: [Orders]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string }
+                notify: { type: boolean, default: true }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  order: { $ref: '#/components/schemas/Order' }
+                  externalUpdated: { type: boolean }
+                  notified: { type: boolean }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/orders/{id}/notify:
+    post:
+      summary: Send an arbitrary message to the customer chat
+      tags: [Orders]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  notified: { type: boolean }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/orders/{id}/payment-link:
+    post:
+      summary: Resend the payment link / instructions
+      tags: [Orders]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  notified: { type: boolean }
+                  message: { type: string }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/bot/test:
+    post:
+      summary: Simulate an incoming message through the bot pipeline
+      description: |
+        Runs the commerce bot (and keyword rules) exactly as a real WhatsApp
+        message would. dryRun=true computes the reply without sending anything;
+        dryRun=false delivers the reply from the session socket.
+      tags: [Bot]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sessionId, chatJid, text]
+              properties:
+                sessionId: { type: string }
+                chatJid: { type: string, description: Customer phone digits or full JID }
+                text: { type: string }
+                pushName: { type: string }
+                dryRun: { type: boolean, default: true }
+      responses:
+        '200':
+          description: Pipeline result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  handled: { type: string, nullable: true, enum: [commerce, rule, null] }
+                  action: { type: string, nullable: true }
+                  reply: { type: string, nullable: true }
+                  ruleId: { type: string, nullable: true }
+                  keyword: { type: string, nullable: true }
+                  orderId: { type: string, nullable: true }
+                  orderNumber: { type: integer, nullable: true }
+                  dryRun: { type: boolean }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/sessions/{id}/groups:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      summary: List the joined WhatsApp groups (requires connected session)
+      tags: [Groups]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  groups:
+                    type: array
+                    items: { $ref: '#/components/schemas/GroupInfo' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/sessions/{id}/groups/join:
+    post:
+      summary: Join a group by invite code or link
+      tags: [Groups]
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, description: 'https://chat.whatsapp.com/… link or bare code' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  joinedJid: { type: string, nullable: true }
+                  code: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/sessions/{id}/groups/{jid}:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+      - name: jid
+        in: path
+        required: true
+        schema: { type: string, description: Group JID (<id>@g.us) }
+    get:
+      summary: Group metadata with participants
+      tags: [Groups]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  group: { $ref: '#/components/schemas/GroupMeta' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/sessions/{id}/groups/{jid}/leave:
+    post:
+      summary: Leave the group
+      tags: [Groups]
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - name: jid
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  left: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/sessions/{id}/groups/{jid}/invite:
+    get:
+      summary: Get the group invite code and link (bot must be admin)
+      tags: [Groups]
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - name: jid
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  code: { type: string }
+                  link: { type: string, nullable: true }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/sessions/{id}/groups/{jid}/participants:
+    post:
+      summary: Add/remove/promote/demote group members (bot must be admin)
+      tags: [Groups]
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - name: jid
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action, participants]
+              properties:
+                action: { type: string, enum: [add, remove, promote, demote] }
+                participants:
+                  type: array
+                  items: { type: string, description: Phone digits or full JIDs }
+      responses:
+        '200':
+          description: Per-participant WhatsApp status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        phone: { type: string }
+                        status: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/broadcasts:
+    get:
+      summary: List broadcast jobs
+      tags: [Broadcasts]
+      parameters:
+        - { name: sessionId, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  broadcasts:
+                    type: array
+                    items: { $ref: '#/components/schemas/Broadcast' }
+    post:
+      summary: Queue a bulk send (sequential with jitter delays)
+      tags: [Broadcasts]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sessionId, message, targets]
+              properties:
+                sessionId: { type: string }
+                message: { type: string }
+                targets:
+                  type: array
+                  maxItems: 500
+                  items: { type: string, description: Phone digits or full JIDs incl. @g.us groups }
+                minDelayMs: { type: integer, default: 1500 }
+                maxDelayMs: { type: integer, default: 4000 }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  broadcast: { $ref: '#/components/schemas/Broadcast' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/broadcasts/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Broadcast detail incl. per-target results
+      tags: [Broadcasts]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  broadcast: { $ref: '#/components/schemas/Broadcast' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      summary: Delete a finished broadcast record
+      tags: [Broadcasts]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OkResponse' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/broadcasts/{id}/cancel:
+    post:
+      summary: Cancel a queued/running broadcast
+      tags: [Broadcasts]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  broadcast: { $ref: '#/components/schemas/Broadcast' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -499,12 +1185,17 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
     NotFound:
-      description: Session, rule or route not found
+      description: Session, rule, store, product, order, broadcast or route not found
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
     Conflict:
-      description: Duplicate session name
+      description: Duplicate name, or the session must be connected for this action
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    BadGateway:
+      description: Upstream platform (WooCommerce/Shopify/Stripe/custom site) unreachable or 5xx
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorResponse' }
@@ -620,9 +1311,158 @@ components:
       properties:
         event:
           type: string
-          enum: [message.received, message.sent, bot.autoreplied, connection.qr,
-                 connection.open, connection.closed, connection.logged_out, webhook.test]
+          enum: [message.received, message.sent, bot.autoreplied, bot.commerce,
+                 order.created, order.paid, order.cancelled,
+                 connection.qr, connection.open, connection.closed, connection.logged_out, webhook.test]
         sessionId: { type: string }
         session: { type: string, description: Session name }
         timestamp: { type: string, format: date-time }
         data: { type: object }
+    StoreInput:
+      type: object
+      required: [sessionId, name]
+      properties:
+        sessionId: { type: string }
+        name: { type: string, maxLength: 80 }
+        type:
+          type: string
+          enum: [manual, woocommerce, shopify, custom]
+          default: manual
+        baseUrl: { type: string, nullable: true, description: 'Store site root, required for woo/shopify' }
+        credentials:
+          type: object
+          nullable: true
+          description: 'woo: {consumerKey, consumerSecret} - shopify: {accessToken} - custom: {headers, productsUrl, createOrderUrl}'
+        currency: { type: string, default: KES }
+        paymentProvider:
+          type: string
+          enum: [store, manual, stripe]
+          default: store
+        paymentConfig:
+          type: object
+          nullable: true
+          description: 'manual: {instructions} - stripe: {secretKey, successUrl, cancelUrl}'
+        groupChat: { type: boolean, default: false }
+        active: { type: boolean, default: true }
+    Store:
+      allOf:
+        - $ref: '#/components/schemas/StoreInput'
+        - type: object
+          properties:
+            id: { type: string }
+            hasCredentials: { type: boolean }
+            credentialsPreview:
+              type: array
+              items: { type: string }
+              description: Credential key names only - values never leave the server
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+            productCount: { type: integer }
+            orderCount: { type: integer }
+    ProductInput:
+      type: object
+      required: [name, price]
+      properties:
+        name: { type: string, maxLength: 180 }
+        price: { type: number, minimum: 0 }
+        sku: { type: string, nullable: true }
+        stock: { type: integer, nullable: true }
+        imageUrl: { type: string, nullable: true }
+        externalId: { type: string, description: Upsert key; auto-generated for manual products }
+        active: { type: boolean, default: true }
+    Product:
+      allOf:
+        - $ref: '#/components/schemas/ProductInput'
+        - type: object
+          properties:
+            id: { type: string }
+            storeId: { type: string }
+            currency: { type: string }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    Order:
+      type: object
+      properties:
+        id: { type: string }
+        number: { type: integer, description: Short customer-facing order number }
+        sessionId: { type: string }
+        storeId: { type: string }
+        store:
+          type: object
+          nullable: true
+          properties:
+            id: { type: string }
+            name: { type: string }
+            type: { type: string }
+            currency: { type: string }
+        externalOrderId: { type: string, nullable: true }
+        chatJid: { type: string }
+        customerName: { type: string, nullable: true }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              productId: { type: string }
+              externalId: { type: string }
+              name: { type: string }
+              price: { type: number }
+              qty: { type: integer }
+        subtotal: { type: number }
+        total: { type: number }
+        currency: { type: string }
+        status: { type: string, enum: [pending, paid, fulfilled, cancelled] }
+        paymentStatus: { type: string, enum: [unpaid, paid, failed] }
+        paymentProvider: { type: string, enum: [store, manual, stripe] }
+        paymentUrl: { type: string, nullable: true }
+        paymentRef: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    GroupInfo:
+      type: object
+      properties:
+        id: { type: string, description: Group JID (<id>@g.us) }
+        subject: { type: string }
+        subjectOwner: { type: string, nullable: true }
+        participantsCount: { type: integer }
+        createdAt: { type: string, format: date-time, nullable: true }
+        description: { type: string, nullable: true }
+    GroupMeta:
+      allOf:
+        - $ref: '#/components/schemas/GroupInfo'
+        - type: object
+          properties:
+            participants:
+              type: array
+              items:
+                type: object
+                properties:
+                  jid: { type: string }
+                  phone: { type: string, nullable: true }
+                  admin: { type: string, nullable: true, enum: [admin, superadmin, null] }
+    Broadcast:
+      type: object
+      properties:
+        id: { type: string }
+        sessionId: { type: string }
+        message: { type: string }
+        status: { type: string, enum: [queued, running, done, failed, cancelled] }
+        minDelayMs: { type: integer }
+        maxDelayMs: { type: integer }
+        total: { type: integer }
+        sent: { type: integer }
+        failed: { type: integer }
+        createdAt: { type: string, format: date-time }
+        startedAt: { type: string, format: date-time, nullable: true }
+        finishedAt: { type: string, format: date-time, nullable: true }
+        targets: { type: array, items: { type: string }, description: Detail responses only }
+        results:
+          type: array
+          nullable: true
+          description: Detail responses only - per-target delivery rows
+          items:
+            type: object
+            properties:
+              target: { type: string }
+              ok: { type: boolean }
+              error: { type: string }

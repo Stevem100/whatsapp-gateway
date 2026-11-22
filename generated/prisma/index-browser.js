@@ -171,6 +171,94 @@ exports.Prisma.BotRuleScalarFieldEnum = {
   createdAt: 'createdAt'
 };
 
+exports.Prisma.StoreScalarFieldEnum = {
+  id: 'id',
+  sessionId: 'sessionId',
+  name: 'name',
+  type: 'type',
+  baseUrl: 'baseUrl',
+  credentials: 'credentials',
+  currency: 'currency',
+  paymentProvider: 'paymentProvider',
+  paymentConfig: 'paymentConfig',
+  groupChat: 'groupChat',
+  active: 'active',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+};
+
+exports.Prisma.ProductScalarFieldEnum = {
+  id: 'id',
+  storeId: 'storeId',
+  externalId: 'externalId',
+  sku: 'sku',
+  name: 'name',
+  price: 'price',
+  currency: 'currency',
+  stock: 'stock',
+  imageUrl: 'imageUrl',
+  active: 'active',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+};
+
+exports.Prisma.CartScalarFieldEnum = {
+  id: 'id',
+  sessionId: 'sessionId',
+  chatJid: 'chatJid',
+  storeId: 'storeId',
+  status: 'status',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+};
+
+exports.Prisma.CartItemScalarFieldEnum = {
+  id: 'id',
+  cartId: 'cartId',
+  productId: 'productId',
+  name: 'name',
+  price: 'price',
+  qty: 'qty'
+};
+
+exports.Prisma.OrderScalarFieldEnum = {
+  id: 'id',
+  sessionId: 'sessionId',
+  storeId: 'storeId',
+  number: 'number',
+  externalOrderId: 'externalOrderId',
+  chatJid: 'chatJid',
+  customerName: 'customerName',
+  items: 'items',
+  subtotal: 'subtotal',
+  total: 'total',
+  currency: 'currency',
+  status: 'status',
+  paymentStatus: 'paymentStatus',
+  paymentProvider: 'paymentProvider',
+  paymentUrl: 'paymentUrl',
+  paymentRef: 'paymentRef',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+};
+
+exports.Prisma.BroadcastScalarFieldEnum = {
+  id: 'id',
+  sessionId: 'sessionId',
+  message: 'message',
+  targets: 'targets',
+  status: 'status',
+  minDelayMs: 'minDelayMs',
+  maxDelayMs: 'maxDelayMs',
+  total: 'total',
+  sent: 'sent',
+  failed: 'failed',
+  results: 'results',
+  createdAt: 'createdAt',
+  startedAt: 'startedAt',
+  finishedAt: 'finishedAt'
+};
+
 exports.Prisma.SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -186,7 +274,13 @@ exports.Prisma.ModelName = {
   Session: 'Session',
   WaKey: 'WaKey',
   Message: 'Message',
-  BotRule: 'BotRule'
+  BotRule: 'BotRule',
+  Store: 'Store',
+  Product: 'Product',
+  Cart: 'Cart',
+  CartItem: 'CartItem',
+  Order: 'Order',
+  Broadcast: 'Broadcast'
 };
 
 /**

@@ -143,6 +143,94 @@ exports.Prisma.BotRuleScalarFieldEnum = {
   createdAt: 'createdAt'
 };
 
+exports.Prisma.StoreScalarFieldEnum = {
+  id: 'id',
+  sessionId: 'sessionId',
+  name: 'name',
+  type: 'type',
+  baseUrl: 'baseUrl',
+  credentials: 'credentials',
+  currency: 'currency',
+  paymentProvider: 'paymentProvider',
+  paymentConfig: 'paymentConfig',
+  groupChat: 'groupChat',
+  active: 'active',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+};
+
+exports.Prisma.ProductScalarFieldEnum = {
+  id: 'id',
+  storeId: 'storeId',
+  externalId: 'externalId',
+  sku: 'sku',
+  name: 'name',
+  price: 'price',
+  currency: 'currency',
+  stock: 'stock',
+  imageUrl: 'imageUrl',
+  active: 'active',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+};
+
+exports.Prisma.CartScalarFieldEnum = {
+  id: 'id',
+  sessionId: 'sessionId',
+  chatJid: 'chatJid',
+  storeId: 'storeId',
+  status: 'status',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+};
+
+exports.Prisma.CartItemScalarFieldEnum = {
+  id: 'id',
+  cartId: 'cartId',
+  productId: 'productId',
+  name: 'name',
+  price: 'price',
+  qty: 'qty'
+};
+
+exports.Prisma.OrderScalarFieldEnum = {
+  id: 'id',
+  sessionId: 'sessionId',
+  storeId: 'storeId',
+  number: 'number',
+  externalOrderId: 'externalOrderId',
+  chatJid: 'chatJid',
+  customerName: 'customerName',
+  items: 'items',
+  subtotal: 'subtotal',
+  total: 'total',
+  currency: 'currency',
+  status: 'status',
+  paymentStatus: 'paymentStatus',
+  paymentProvider: 'paymentProvider',
+  paymentUrl: 'paymentUrl',
+  paymentRef: 'paymentRef',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+};
+
+exports.Prisma.BroadcastScalarFieldEnum = {
+  id: 'id',
+  sessionId: 'sessionId',
+  message: 'message',
+  targets: 'targets',
+  status: 'status',
+  minDelayMs: 'minDelayMs',
+  maxDelayMs: 'maxDelayMs',
+  total: 'total',
+  sent: 'sent',
+  failed: 'failed',
+  results: 'results',
+  createdAt: 'createdAt',
+  startedAt: 'startedAt',
+  finishedAt: 'finishedAt'
+};
+
 exports.Prisma.SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -158,7 +246,13 @@ exports.Prisma.ModelName = {
   Session: 'Session',
   WaKey: 'WaKey',
   Message: 'Message',
-  BotRule: 'BotRule'
+  BotRule: 'BotRule',
+  Store: 'Store',
+  Product: 'Product',
+  Cart: 'Cart',
+  CartItem: 'CartItem',
+  Order: 'Order',
+  Broadcast: 'Broadcast'
 };
 /**
  * Create the Client
@@ -199,6 +293,7 @@ const config = {
     "db"
   ],
   "activeProvider": "sqlite",
+  "postinstall": false,
   "inlineDatasources": {
     "db": {
       "url": {
@@ -207,13 +302,13 @@ const config = {
       }
     }
   },
-  "inlineSchema": "// WhatsApp Gateway database schema (SQLite)\n// Sessions, Baileys signal keys, message history and auto-reply bot rules.\n\ngenerator client {\n  provider = \"prisma-client-js\"\n  output   = \"../generated/prisma\"\n}\n\ndatasource db {\n  provider = \"sqlite\"\n  url      = env(\"DATABASE_URL\")\n}\n\n/// One WhatsApp account connection. Baileys credentials blob is stored in `creds`.\nmodel Session {\n  id              String    @id @default(cuid())\n  name            String    @unique\n  status          String    @default(\"disconnected\") // disconnected | connecting | qr | connected | reconnecting | logged_out\n  qr              String? // latest QR string issued by WhatsApp\n  qrGeneratedAt   DateTime?\n  botEnabled      Boolean   @default(true)\n  webhookUrl      String?\n  connectedJid    String?\n  connectedPhone  String?\n  lastConnectedAt DateTime?\n  creds           String? // serialized Baileys credentials (BufferJSON)\n  createdAt       DateTime  @default(now())\n  updatedAt       DateTime  @updatedAt\n  keys            WaKey[]\n  messages        Message[]\n  rules           BotRule[]\n}\n\n/// Baileys signal-protocol keys (pre-keys, sessions, sender-keys), one row per key.\nmodel WaKey {\n  id        String  @id @default(cuid())\n  sessionId String\n  category  String // pre-key | session | sender-key | sender-key-sharing | sender-key-state | registration\n  keyId     String\n  data      String // JSON serialized with BufferJSON\n  session   Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)\n\n  @@unique([sessionId, category, keyId])\n  @@index([sessionId, category])\n}\n\n/// Message history for the inbox and the chats view.\nmodel Message {\n  id          String   @id @default(cuid())\n  sessionId   String\n  waMessageId String? // WhatsApp message id (dedupe)\n  remoteJid   String // chat jid: <phone>@s.whatsapp.net or <id>@g.us\n  senderJid   String? // actual sender inside groups\n  pushName    String?\n  fromMe      Boolean  @default(false)\n  type        String   @default(\"text\") // text | image | video | document | location | contact | audio | sticker | reaction | other\n  body        String? // text content or caption\n  mediaMime   String?\n  status      String   @default(\"received\") // received | sent | delivered | read | failed\n  error       String?\n  timestamp   DateTime\n  createdAt   DateTime @default(now())\n  session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)\n\n  @@unique([sessionId, waMessageId])\n  @@index([sessionId, remoteJid, timestamp])\n}\n\n/// Auto-reply bot rule. First matching rule (by priority desc) wins.\nmodel BotRule {\n  id        String   @id @default(cuid())\n  sessionId String\n  matchType String   @default(\"contains\") // exact | contains | starts_with | regex\n  keyword   String\n  reply     String\n  enabled   Boolean  @default(true)\n  priority  Int      @default(0)\n  hits      Int      @default(0)\n  createdAt DateTime @default(now())\n  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)\n\n  @@index([sessionId])\n}\n",
-  "inlineSchemaHash": "1f16542cbaba10a5bf82ddb37ff0a75c1d9ef1f087153b54fe367b129c23704a",
+  "inlineSchema": "// WhatsApp Gateway database schema (SQLite)\n// Sessions, Baileys signal keys, message history and auto-reply bot rules.\n\ngenerator client {\n  provider = \"prisma-client-js\"\n  output   = \"../generated/prisma\"\n}\n\ndatasource db {\n  provider = \"sqlite\"\n  url      = env(\"DATABASE_URL\")\n}\n\n/// One WhatsApp account connection. Baileys credentials blob is stored in `creds`.\nmodel Session {\n  id              String    @id @default(cuid())\n  name            String    @unique\n  status          String    @default(\"disconnected\") // disconnected | connecting | qr | connected | reconnecting | logged_out\n  qr              String? // latest QR string issued by WhatsApp\n  qrGeneratedAt   DateTime?\n  botEnabled      Boolean   @default(true)\n  webhookUrl      String?\n  connectedJid    String?\n  connectedPhone  String?\n  lastConnectedAt DateTime?\n  creds           String? // serialized Baileys credentials (BufferJSON)\n  createdAt       DateTime  @default(now())\n  updatedAt       DateTime  @updatedAt\n  keys            WaKey[]\n  messages        Message[]\n  rules           BotRule[]\n}\n\n/// Baileys signal-protocol keys (pre-keys, sessions, sender-keys), one row per key.\nmodel WaKey {\n  id        String  @id @default(cuid())\n  sessionId String\n  category  String // pre-key | session | sender-key | sender-key-sharing | sender-key-state | registration\n  keyId     String\n  data      String // JSON serialized with BufferJSON\n  session   Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)\n\n  @@unique([sessionId, category, keyId])\n  @@index([sessionId, category])\n}\n\n/// Message history for the inbox and the chats view.\nmodel Message {\n  id          String   @id @default(cuid())\n  sessionId   String\n  waMessageId String? // WhatsApp message id (dedupe)\n  remoteJid   String // chat jid: <phone>@s.whatsapp.net or <id>@g.us\n  senderJid   String? // actual sender inside groups\n  pushName    String?\n  fromMe      Boolean  @default(false)\n  type        String   @default(\"text\") // text | image | video | document | location | contact | audio | sticker | reaction | other\n  body        String? // text content or caption\n  mediaMime   String?\n  status      String   @default(\"received\") // received | sent | delivered | read | failed\n  error       String?\n  timestamp   DateTime\n  createdAt   DateTime @default(now())\n  session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)\n\n  @@unique([sessionId, waMessageId])\n  @@index([sessionId, remoteJid, timestamp])\n}\n\n/// Auto-reply bot rule. First matching rule (by priority desc) wins.\nmodel BotRule {\n  id        String   @id @default(cuid())\n  sessionId String\n  matchType String   @default(\"contains\") // exact | contains | starts_with | regex\n  keyword   String\n  reply     String\n  enabled   Boolean  @default(true)\n  priority  Int      @default(0)\n  hits      Int      @default(0)\n  createdAt DateTime @default(now())\n  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)\n\n  @@index([sessionId])\n}\n\n/// E-commerce store bound to a session: woocommerce | shopify | custom | manual.\nmodel Store {\n  id              String    @id @default(cuid())\n  sessionId       String\n  name            String\n  type            String // manual | woocommerce | shopify | custom\n  baseUrl         String? // store site root, e.g. https://shop.example.com\n  credentials     String? // JSON: woo {consumerKey, consumerSecret}, shopify {accessToken}, custom {headers, productsUrl, createOrderUrl}\n  currency        String    @default(\"KES\")\n  paymentProvider String    @default(\"store\") // store | manual | stripe\n  paymentConfig   String? // JSON: manual {instructions}, stripe {secretKey, successUrl, cancelUrl}\n  groupChat       Boolean   @default(false) // let the commerce bot answer inside group chats\n  active          Boolean   @default(true)\n  createdAt       DateTime  @default(now())\n  updatedAt       DateTime  @updatedAt\n  products        Product[]\n  orders          Order[]\n\n  @@index([sessionId])\n}\n\n/// Product catalog, cached from the platform (sync) or managed manually.\nmodel Product {\n  id         String   @id @default(cuid())\n  storeId    String\n  externalId String   @default(\"manual\") // platform product id (woo/shopify) or \"manual\"\n  sku        String?\n  name       String\n  price      Float\n  currency   String   @default(\"KES\")\n  stock      Int?\n  imageUrl   String?\n  active     Boolean  @default(true)\n  createdAt  DateTime @default(now())\n  updatedAt  DateTime @updatedAt\n  store      Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)\n\n  @@unique([storeId, externalId])\n  @@index([storeId])\n}\n\n/// Per-chat shopping cart of the commerce bot (one open cart per session+chat).\nmodel Cart {\n  id        String     @id @default(cuid())\n  sessionId String\n  chatJid   String\n  storeId   String?\n  status    String     @default(\"open\") // open | ordered\n  items     CartItem[]\n  createdAt DateTime   @default(now())\n  updatedAt DateTime   @updatedAt\n\n  @@unique([sessionId, chatJid])\n  @@index([sessionId, chatJid])\n}\n\nmodel CartItem {\n  id        String @id @default(cuid())\n  cartId    String\n  productId String\n  name      String\n  price     Float\n  qty       Int    @default(1)\n  cart      Cart   @relation(fields: [cartId], references: [id], onDelete: Cascade)\n\n  @@index([cartId])\n}\n\n/// Order created from a WhatsApp chat (synced to the store platform when possible).\nmodel Order {\n  id              String   @id @default(cuid())\n  sessionId       String\n  storeId         String\n  number          Int      @unique // short human-friendly order number\n  externalOrderId String? // woo/shopify order id\n  chatJid         String\n  customerName    String?\n  items           String // JSON snapshot [{productId, externalId, name, price, qty}]\n  subtotal        Float\n  total           Float\n  currency        String\n  status          String   @default(\"pending\") // pending | paid | fulfilled | cancelled\n  paymentStatus   String   @default(\"unpaid\") // unpaid | paid | failed\n  paymentProvider String   @default(\"store\") // store | manual | stripe\n  paymentUrl      String?\n  paymentRef      String?\n  createdAt       DateTime @default(now())\n  updatedAt       DateTime @updatedAt\n  store           Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)\n\n  @@index([sessionId, chatJid])\n  @@index([storeId])\n}\n\n/// Bulk-send job: message delivered to many chats sequentially with jitter delays.\nmodel Broadcast {\n  id         String    @id @default(cuid())\n  sessionId  String\n  message    String\n  targets    String // JSON array of target jids\n  status     String    @default(\"queued\") // queued | running | done | failed | cancelled\n  minDelayMs Int       @default(1500)\n  maxDelayMs Int       @default(4000)\n  total      Int       @default(0)\n  sent       Int       @default(0)\n  failed     Int       @default(0)\n  results    String? // JSON per-target result rows\n  createdAt  DateTime  @default(now())\n  startedAt  DateTime?\n  finishedAt DateTime?\n}\n",
+  "inlineSchemaHash": "00a9fa779f4ba1e18852d12928c3f6a0966ea5a6ea67865c30d40a93459bfdf4",
   "copyEngine": true
 }
 config.dirname = '/'
 
-config.runtimeDataModel = JSON.parse("{\"models\":{\"Session\":{\"fields\":[{\"name\":\"id\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"name\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"status\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"qr\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"qrGeneratedAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"botEnabled\",\"kind\":\"scalar\",\"type\":\"Boolean\"},{\"name\":\"webhookUrl\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"connectedJid\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"connectedPhone\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"lastConnectedAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"creds\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"createdAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"updatedAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"keys\",\"kind\":\"object\",\"type\":\"WaKey\",\"relationName\":\"SessionToWaKey\"},{\"name\":\"messages\",\"kind\":\"object\",\"type\":\"Message\",\"relationName\":\"MessageToSession\"},{\"name\":\"rules\",\"kind\":\"object\",\"type\":\"BotRule\",\"relationName\":\"BotRuleToSession\"}],\"dbName\":null},\"WaKey\":{\"fields\":[{\"name\":\"id\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"sessionId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"category\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"keyId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"data\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"session\",\"kind\":\"object\",\"type\":\"Session\",\"relationName\":\"SessionToWaKey\"}],\"dbName\":null},\"Message\":{\"fields\":[{\"name\":\"id\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"sessionId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"waMessageId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"remoteJid\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"senderJid\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"pushName\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"fromMe\",\"kind\":\"scalar\",\"type\":\"Boolean\"},{\"name\":\"type\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"body\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"mediaMime\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"status\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"error\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"timestamp\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"createdAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"session\",\"kind\":\"object\",\"type\":\"Session\",\"relationName\":\"MessageToSession\"}],\"dbName\":null},\"BotRule\":{\"fields\":[{\"name\":\"id\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"sessionId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"matchType\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"keyword\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"reply\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"enabled\",\"kind\":\"scalar\",\"type\":\"Boolean\"},{\"name\":\"priority\",\"kind\":\"scalar\",\"type\":\"Int\"},{\"name\":\"hits\",\"kind\":\"scalar\",\"type\":\"Int\"},{\"name\":\"createdAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"session\",\"kind\":\"object\",\"type\":\"Session\",\"relationName\":\"BotRuleToSession\"}],\"dbName\":null}},\"enums\":{},\"types\":{}}")
+config.runtimeDataModel = JSON.parse("{\"models\":{\"Session\":{\"fields\":[{\"name\":\"id\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"name\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"status\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"qr\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"qrGeneratedAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"botEnabled\",\"kind\":\"scalar\",\"type\":\"Boolean\"},{\"name\":\"webhookUrl\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"connectedJid\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"connectedPhone\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"lastConnectedAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"creds\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"createdAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"updatedAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"keys\",\"kind\":\"object\",\"type\":\"WaKey\",\"relationName\":\"SessionToWaKey\"},{\"name\":\"messages\",\"kind\":\"object\",\"type\":\"Message\",\"relationName\":\"MessageToSession\"},{\"name\":\"rules\",\"kind\":\"object\",\"type\":\"BotRule\",\"relationName\":\"BotRuleToSession\"}],\"dbName\":null},\"WaKey\":{\"fields\":[{\"name\":\"id\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"sessionId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"category\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"keyId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"data\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"session\",\"kind\":\"object\",\"type\":\"Session\",\"relationName\":\"SessionToWaKey\"}],\"dbName\":null},\"Message\":{\"fields\":[{\"name\":\"id\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"sessionId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"waMessageId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"remoteJid\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"senderJid\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"pushName\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"fromMe\",\"kind\":\"scalar\",\"type\":\"Boolean\"},{\"name\":\"type\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"body\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"mediaMime\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"status\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"error\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"timestamp\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"createdAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"session\",\"kind\":\"object\",\"type\":\"Session\",\"relationName\":\"MessageToSession\"}],\"dbName\":null},\"BotRule\":{\"fields\":[{\"name\":\"id\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"sessionId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"matchType\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"keyword\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"reply\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"enabled\",\"kind\":\"scalar\",\"type\":\"Boolean\"},{\"name\":\"priority\",\"kind\":\"scalar\",\"type\":\"Int\"},{\"name\":\"hits\",\"kind\":\"scalar\",\"type\":\"Int\"},{\"name\":\"createdAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"session\",\"kind\":\"object\",\"type\":\"Session\",\"relationName\":\"BotRuleToSession\"}],\"dbName\":null},\"Store\":{\"fields\":[{\"name\":\"id\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"sessionId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"name\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"type\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"baseUrl\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"credentials\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"currency\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"paymentProvider\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"paymentConfig\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"groupChat\",\"kind\":\"scalar\",\"type\":\"Boolean\"},{\"name\":\"active\",\"kind\":\"scalar\",\"type\":\"Boolean\"},{\"name\":\"createdAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"updatedAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"products\",\"kind\":\"object\",\"type\":\"Product\",\"relationName\":\"ProductToStore\"},{\"name\":\"orders\",\"kind\":\"object\",\"type\":\"Order\",\"relationName\":\"OrderToStore\"}],\"dbName\":null},\"Product\":{\"fields\":[{\"name\":\"id\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"storeId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"externalId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"sku\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"name\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"price\",\"kind\":\"scalar\",\"type\":\"Float\"},{\"name\":\"currency\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"stock\",\"kind\":\"scalar\",\"type\":\"Int\"},{\"name\":\"imageUrl\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"active\",\"kind\":\"scalar\",\"type\":\"Boolean\"},{\"name\":\"createdAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"updatedAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"store\",\"kind\":\"object\",\"type\":\"Store\",\"relationName\":\"ProductToStore\"}],\"dbName\":null},\"Cart\":{\"fields\":[{\"name\":\"id\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"sessionId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"chatJid\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"storeId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"status\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"items\",\"kind\":\"object\",\"type\":\"CartItem\",\"relationName\":\"CartToCartItem\"},{\"name\":\"createdAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"updatedAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"}],\"dbName\":null},\"CartItem\":{\"fields\":[{\"name\":\"id\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"cartId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"productId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"name\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"price\",\"kind\":\"scalar\",\"type\":\"Float\"},{\"name\":\"qty\",\"kind\":\"scalar\",\"type\":\"Int\"},{\"name\":\"cart\",\"kind\":\"object\",\"type\":\"Cart\",\"relationName\":\"CartToCartItem\"}],\"dbName\":null},\"Order\":{\"fields\":[{\"name\":\"id\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"sessionId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"storeId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"number\",\"kind\":\"scalar\",\"type\":\"Int\"},{\"name\":\"externalOrderId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"chatJid\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"customerName\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"items\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"subtotal\",\"kind\":\"scalar\",\"type\":\"Float\"},{\"name\":\"total\",\"kind\":\"scalar\",\"type\":\"Float\"},{\"name\":\"currency\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"status\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"paymentStatus\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"paymentProvider\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"paymentUrl\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"paymentRef\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"createdAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"updatedAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"store\",\"kind\":\"object\",\"type\":\"Store\",\"relationName\":\"OrderToStore\"}],\"dbName\":null},\"Broadcast\":{\"fields\":[{\"name\":\"id\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"sessionId\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"message\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"targets\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"status\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"minDelayMs\",\"kind\":\"scalar\",\"type\":\"Int\"},{\"name\":\"maxDelayMs\",\"kind\":\"scalar\",\"type\":\"Int\"},{\"name\":\"total\",\"kind\":\"scalar\",\"type\":\"Int\"},{\"name\":\"sent\",\"kind\":\"scalar\",\"type\":\"Int\"},{\"name\":\"failed\",\"kind\":\"scalar\",\"type\":\"Int\"},{\"name\":\"results\",\"kind\":\"scalar\",\"type\":\"String\"},{\"name\":\"createdAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"startedAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"},{\"name\":\"finishedAt\",\"kind\":\"scalar\",\"type\":\"DateTime\"}],\"dbName\":null}},\"enums\":{},\"types\":{}}")
 defineDmmfProperty(exports.Prisma, config.runtimeDataModel)
 config.engineWasm = {
   getRuntime: async () => require('./query_engine_bg.js'),

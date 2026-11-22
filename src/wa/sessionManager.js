@@ -15,6 +15,7 @@ const config = require('../config')
 const { usePrismaAuthState } = require('./authState')
 const { classifyMessage, jidToPhone, MESSAGE_STATUS_BY_CODE } = require('../utils/helpers')
 const { runAutoReply } = require('../bot/autoReply')
+const { runCommerceBot } = require('../bot/commerce')
 const { forwardEvent } = require('../webhook/forwarder')
 
 const baileysLogger = pino({ level: 'silent' })
@@ -270,18 +271,38 @@ async function handleIncomingMessage(id, msg) {
   })
 
   if (!fromMe && stored.type === 'text' && session) {
-    const rule = await runAutoReply(session, getRuntime(id).sock, {
-      remoteJid,
-      fromMe,
-      body: stored.body,
-    })
-    if (rule) {
-      await forwardEvent(session, 'bot.autoreplied', {
+    // commerce bot first (catalog/cart/checkout when a store is bound to this session),
+    // keyword rules act as the fallback
+    let commerce = null
+    try {
+      commerce = await runCommerceBot(session, getRuntime(id).sock, {
         remoteJid,
-        ruleId: rule.id,
-        keyword: rule.keyword,
-        reply: rule.reply,
+        body: stored.body,
+        pushName: stored.pushName,
       })
+    } catch (err) {
+      console.error(`[session ${id}] commerce bot error: ${err.message}`)
+    }
+    if (commerce) {
+      await forwardEvent(session, 'bot.commerce', {
+        remoteJid,
+        action: commerce.action,
+        reply: commerce.reply,
+      })
+    } else {
+      const rule = await runAutoReply(session, getRuntime(id).sock, {
+        remoteJid,
+        fromMe,
+        body: stored.body,
+      })
+      if (rule) {
+        await forwardEvent(session, 'bot.autoreplied', {
+          remoteJid,
+          ruleId: rule.id,
+          keyword: rule.keyword,
+          reply: rule.reply,
+        })
+      }
     }
   }
 }
@@ -400,6 +421,148 @@ async function sendMessage(id, jid, content, meta) {
   return stored
 }
 
+// ------------------------------------------------------------------- groups
+
+function requireSock(id) {
+  const sock = requireConnectedSocket(id)
+  if (!sock) {
+    const err = new Error('Session is not connected. Connect it and scan the QR code first.')
+    err.status = 409
+    throw err
+  }
+  return sock
+}
+
+function groupJid(raw) {
+  const s = String(raw || '').trim()
+  if (s.endsWith('@g.us')) return s
+  if (/^\d{10,}$/.test(s)) return `${s}@g.us` // numeric group id fallback is unusual, but harmless
+  const err = new Error(`"${s}" is not a valid group JID (expected 120363…@g.us)`)
+  err.status = 400
+  throw err
+}
+
+async function listGroups(id) {
+  const sock = requireSock(id)
+  const meta = await sock.groupFetchAllParticipating()
+  const list = Object.values(meta || {})
+  return list.map((g) => ({
+    id: g.id,
+    subject: g.subject || '',
+    subjectOwner: g.subjectOwner || null,
+    participantsCount: Array.isArray(g.participants) ? g.participants.length : 0,
+    createdAt: g.creation ? new Date(g.creation * 1000).toISOString() : null,
+    description: g.desc || null,
+  }))
+}
+
+async function getGroupMeta(id, rawJid) {
+  const sock = requireSock(id)
+  const jid = groupJid(rawJid)
+  const g = await sock.groupMetadata(jid)
+  return {
+    id: g.id,
+    subject: g.subject || '',
+    subjectOwner: g.subjectOwner || null,
+    description: g.desc || null,
+    createdAt: g.creation ? new Date(g.creation * 1000).toISOString() : null,
+    participants: (Array.isArray(g.participants) ? g.participants : []).map((p) => ({
+      jid: p.id,
+      phone: jidToPhone(p.id),
+      admin: p.admin || null, // 'admin' | 'superadmin' | null
+    })),
+  }
+}
+
+function extractInviteCode(raw) {
+  const s = String(raw || '').trim()
+  const fromLink = /chat\.whatsapp\.com\/(?:invite\/)?([A-Za-z0-9_-]{10,})/.exec(s)
+  const code = fromLink ? fromLink[1] : s
+  if (!/^[A-Za-z0-9_-]{10,}$/.test(code)) {
+    const err = new Error('Provide a group invite code or a full https://chat.whatsapp.com/… link')
+    err.status = 400
+    throw err
+  }
+  return code
+}
+
+async function joinGroup(id, rawCode) {
+  const sock = requireSock(id)
+  const code = extractInviteCode(rawCode)
+  try {
+    const result = await sock.groupAcceptInvite(code)
+    return { joinedJid: result && typeof result === 'string' ? result : null, code }
+  } catch (err) {
+    const msg = err && err.message ? err.message : 'WhatsApp rejected the invite code'
+    const wrapped = new Error(`Could not join group: ${msg}`)
+    wrapped.status = 400
+    throw wrapped
+  }
+}
+
+async function leaveGroup(id, rawJid) {
+  const sock = requireSock(id)
+  const jid = groupJid(rawJid)
+  try {
+    await sock.groupLeave(jid)
+    return { left: jid }
+  } catch (err) {
+    const wrapped = new Error(`Could not leave group: ${err.message}`)
+    wrapped.status = 400
+    throw wrapped
+  }
+}
+
+async function groupInviteCode(id, rawJid) {
+  const sock = requireSock(id)
+  const jid = groupJid(rawJid)
+  try {
+    const code = await sock.groupInviteCode(jid)
+    return { code, link: code ? `https://chat.whatsapp.com/${code}` : null }
+  } catch (err) {
+    const wrapped = new Error(`Could not fetch invite code (bot must be a group admin): ${err.message}`)
+    wrapped.status = 400
+    throw wrapped
+  }
+}
+
+const PARTICIPANT_ACTIONS = ['add', 'remove', 'promote', 'demote']
+
+async function updateGroupParticipants(id, rawJid, action, phones) {
+  const sock = requireSock(id)
+  const jid = groupJid(rawJid)
+  if (!PARTICIPANT_ACTIONS.includes(action)) {
+    const err = new Error(`action must be one of: ${PARTICIPANT_ACTIONS.join(', ')}`)
+    err.status = 400
+    throw err
+  }
+  if (!Array.isArray(phones) || !phones.length) {
+    const err = new Error('participants must be a non-empty array of phone numbers')
+    err.status = 400
+    throw err
+  }
+  const jids = phones.map((p) => {
+    const digits = String(p).replace(/\D/g, '')
+    if (!digits || digits.length < 6) {
+      const err = new Error(`"${p}" is not a valid phone number`)
+      err.status = 400
+      throw err
+    }
+    return `${digits}@s.whatsapp.net`
+  })
+  try {
+    const result = await sock.groupParticipantsUpdate(jid, jids, action)
+    return jids.map((jid2, idx) => ({
+      phone: jidToPhone(jid2),
+      status: (result && result[idx] && result[idx].status) || 'unknown',
+    }))
+  } catch (err) {
+    const wrapped = new Error(`Could not update participants (bot must be a group admin): ${err.message}`)
+    wrapped.status = 400
+    throw wrapped
+  }
+}
+
 // ------------------------------------------------------------------- boot
 
 async function resumeSessions() {
@@ -435,4 +598,10 @@ module.exports = {
   stopAllSessions,
   requireConnectedSocket,
   sendMessage,
+  listGroups,
+  getGroupMeta,
+  joinGroup,
+  leaveGroup,
+  groupInviteCode,
+  updateGroupParticipants,
 }

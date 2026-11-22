@@ -81,3 +81,115 @@ model BotRule {
 
   @@index([sessionId])
 }
+
+/// E-commerce store bound to a session: woocommerce | shopify | custom | manual.
+model Store {
+  id              String   @id @default(cuid())
+  sessionId       String
+  name            String
+  type            String // manual | woocommerce | shopify | custom
+  baseUrl         String? // store site root, e.g. https://shop.example.com
+  credentials     String? // JSON: woo {consumerKey, consumerSecret}, shopify {accessToken}, custom {headers, productsUrl, createOrderUrl}
+  currency        String   @default("KES")
+  paymentProvider String   @default("store") // store | manual | stripe
+  paymentConfig   String? // JSON: manual {instructions}, stripe {secretKey, successUrl, cancelUrl}
+  groupChat       Boolean  @default(false) // let the commerce bot answer inside group chats
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  products        Product[]
+  orders          Order[]
+
+  @@index([sessionId])
+}
+
+/// Product catalog, cached from the platform (sync) or managed manually.
+model Product {
+  id         String  @id @default(cuid())
+  storeId    String
+  externalId String  @default("manual") // platform product id (woo/shopify) or "manual"
+  sku        String?
+  name       String
+  price      Float
+  currency   String  @default("KES")
+  stock      Int?
+  imageUrl   String?
+  active     Boolean @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  store      Store   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, externalId])
+  @@index([storeId])
+}
+
+/// Per-chat shopping cart of the commerce bot (one open cart per session+chat).
+model Cart {
+  id        String     @id @default(cuid())
+  sessionId String
+  chatJid   String
+  storeId   String?
+  status    String     @default("open") // open | ordered
+  items     CartItem[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@unique([sessionId, chatJid])
+  @@index([sessionId, chatJid])
+}
+
+model CartItem {
+  id        String @id @default(cuid())
+  cartId    String
+  productId String
+  name      String
+  price     Float
+  qty       Int    @default(1)
+  cart      Cart   @relation(fields: [cartId], references: [id], onDelete: Cascade)
+
+  @@index([cartId])
+}
+
+/// Order created from a WhatsApp chat (synced to the store platform when possible).
+model Order {
+  id              String   @id @default(cuid())
+  sessionId       String
+  storeId         String
+  number          Int      @unique // short human-friendly order number
+  externalOrderId String? // woo/shopify order id
+  chatJid         String
+  customerName    String?
+  items           String // JSON snapshot [{productId, externalId, name, price, qty}]
+  subtotal        Float
+  total           Float
+  currency        String
+  status          String   @default("pending") // pending | paid | fulfilled | cancelled
+  paymentStatus   String   @default("unpaid") // unpaid | paid | failed
+  paymentProvider String   @default("store") // store | manual | stripe
+  paymentUrl      String?
+  paymentRef      String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  store           Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, chatJid])
+  @@index([storeId])
+}
+
+/// Bulk-send job: message delivered to many chats sequentially with jitter delays.
+model Broadcast {
+  id          String   @id @default(cuid())
+  sessionId   String
+  message     String
+  targets     String // JSON array of target jids
+  status      String   @default("queued") // queued | running | done | failed | cancelled
+  minDelayMs  Int      @default(1500)
+  maxDelayMs  Int      @default(4000)
+  total       Int      @default(0)
+  sent        Int      @default(0)
+  failed      Int      @default(0)
+  results     String? // JSON per-target result rows
+  createdAt   DateTime @default(now())
+  startedAt   DateTime?
+  finishedAt  DateTime?
+}
