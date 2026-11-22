@@ -5,6 +5,7 @@ const config = require('./config')
 const prisma = require('./db')
 const { requireApiKey } = require('./apikey')
 const { HttpError, ah } = require('./utils/helpers')
+const dashboard = require('./dashboard')
 const sessionManager = require('./wa/sessionManager')
 
 const sessionsRouter = require('./routes/sessions')
@@ -21,14 +22,18 @@ function buildApp() {
   app.use(cors())
   app.use(express.json({ limit: '25mb' }))
 
+  // Landing page: dashboard UI (the old JSON status lives on at /api/health)
   app.get('/', (req, res) => {
-    res.json({
-      name: 'whatsapp-gateway',
-      version: '1.0.0',
-      status: 'ok',
-      apiBase: '/api',
-      auth: 'x-api-key header (see .env API_KEY)',
-    })
+    res.type('html').send(dashboard.dashboardHtml())
+  })
+
+  // Swagger UI rendering docs/openapi.yaml
+  app.get('/docs', (req, res) => {
+    res.type('html').send(dashboard.docsHtml())
+  })
+
+  app.get('/api/openapi.yaml', (req, res) => {
+    res.type('text/yaml').send(dashboard.openapiYaml())
   })
 
   // wrapped in ah() so a Prisma failure returns a 500 JSON error instead of

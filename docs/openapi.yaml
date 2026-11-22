@@ -19,10 +19,10 @@ info:
     Every route under `/api` requires the `x-api-key` header (or `?api_key=`
     query parameter), except `GET /api/health`.
 servers:
+  - url: /
+    description: Same origin — this deployment (used by the /docs Swagger UI)
   - url: http://localhost:3030
     description: Direct gateway (configurable via PORT)
-  - url: /
-    description: Next.js dashboard proxy — paths shift from /api/... to /api/wa/...
 tags:
   - name: Health
     description: Service info and health check
