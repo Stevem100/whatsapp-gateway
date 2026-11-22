@@ -1,0 +1,26 @@
+{
+  "name": "whatsapp-gateway",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Multi-session WhatsApp bot gateway (Express + Baileys + Prisma/SQLite) with send API, auto-reply bot, event webhooks and dashboard",
+  "main": "index.js",
+  "scripts": {
+    "dev": "node --watch index.js",
+    "start": "node index.js",
+    "setup": "npm install && npm run db:generate && npm run db:push",
+    "db:generate": "prisma generate",
+    "db:push": "DATABASE_URL=\"file:../db/gateway.db\" prisma db push"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.11.1",
+    "@whiskeysockets/baileys": "6.7.24",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "pino": "^9.6.0",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "prisma": "^6.11.1"
+  }
+}

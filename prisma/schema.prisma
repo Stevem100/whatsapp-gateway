@@ -1,0 +1,83 @@
+// WhatsApp Gateway database schema (SQLite)
+// Sessions, Baileys signal keys, message history and auto-reply bot rules.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// One WhatsApp account connection. Baileys credentials blob is stored in `creds`.
+model Session {
+  id              String    @id @default(cuid())
+  name            String    @unique
+  status          String    @default("disconnected") // disconnected | connecting | qr | connected | reconnecting | logged_out
+  qr              String? // latest QR string issued by WhatsApp
+  qrGeneratedAt   DateTime?
+  botEnabled      Boolean   @default(true)
+  webhookUrl      String?
+  connectedJid    String?
+  connectedPhone  String?
+  lastConnectedAt DateTime?
+  creds           String? // serialized Baileys credentials (BufferJSON)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  keys            WaKey[]
+  messages        Message[]
+  rules           BotRule[]
+}
+
+/// Baileys signal-protocol keys (pre-keys, sessions, sender-keys), one row per key.
+model WaKey {
+  id        String  @id @default(cuid())
+  sessionId String
+  category  String // pre-key | session | sender-key | sender-key-sharing | sender-key-state | registration
+  keyId     String
+  data      String // JSON serialized with BufferJSON
+  session   Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, category, keyId])
+  @@index([sessionId, category])
+}
+
+/// Message history for the inbox and the chats view.
+model Message {
+  id          String   @id @default(cuid())
+  sessionId   String
+  waMessageId String? // WhatsApp message id (dedupe)
+  remoteJid   String // chat jid: <phone>@s.whatsapp.net or <id>@g.us
+  senderJid   String? // actual sender inside groups
+  pushName    String?
+  fromMe      Boolean  @default(false)
+  type        String   @default("text") // text | image | video | document | location | contact | audio | sticker | reaction | other
+  body        String? // text content or caption
+  mediaMime   String?
+  status      String   @default("received") // received | sent | delivered | read | failed
+  error       String?
+  timestamp   DateTime
+  createdAt   DateTime @default(now())
+  session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, waMessageId])
+  @@index([sessionId, remoteJid, timestamp])
+}
+
+/// Auto-reply bot rule. First matching rule (by priority desc) wins.
+model BotRule {
+  id        String   @id @default(cuid())
+  sessionId String
+  matchType String   @default("contains") // exact | contains | starts_with | regex
+  keyword   String
+  reply     String
+  enabled   Boolean  @default(true)
+  priority  Int      @default(0)
+  hits      Int      @default(0)
+  createdAt DateTime @default(now())
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+}
