@@ -1,0 +1,628 @@
+openapi: 3.0.3
+info:
+  title: WhatsApp Gateway API
+  version: 1.0.0
+  description: |
+    REST API for a self-hosted multi-session WhatsApp bot gateway built on the
+    WhatsApp Web multi-device protocol (Baileys).
+
+    - Manage sessions (QR link / unlink, reconnect, delete)
+    - Send text, image, video, document and location messages
+    - Read the message inbox (chats + history)
+    - Configure per-session keyword auto-reply rules
+    - Receive events (messages, bot replies, connection changes) via webhooks
+
+    Every route under `/api` requires the `x-api-key` header (or `?api_key=`
+    query parameter), except `GET /api/health`.
+servers:
+  - url: http://localhost:3030
+    description: Direct gateway (configurable via PORT)
+  - url: /
+    description: Next.js dashboard proxy — paths shift from /api/... to /api/wa/...
+tags:
+  - name: Health
+    description: Service info and health check
+  - name: Sessions
+    description: WhatsApp account connections
+  - name: Messages
+    description: Inbox and sending
+  - name: Rules
+    description: Auto-reply bot rules
+  - name: Webhooks
+    description: Event forwarding configuration
+security:
+  - ApiKeyAuth: []
+
+paths:
+  /:
+    get:
+      summary: Service info banner
+      security: []
+      tags: [Health]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name: { type: string, example: whatsapp-gateway }
+                  version: { type: string, example: 1.0.0 }
+                  status: { type: string, example: ok }
+                  apiBase: { type: string, example: /api }
+                  auth: { type: string }
+
+  /api/health:
+    get:
+      summary: Health check
+      description: No auth required. Returns uptime, optional key hint and session counters.
+      security: []
+      tags: [Health]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  service: { type: string, example: whatsapp-gateway }
+                  version: { type: string, example: 1.0.0 }
+                  uptimeSec: { type: integer, example: 3600 }
+                  authRequired: { type: boolean, example: true }
+                  keyHint: { type: string, nullable: true }
+                  sessions:
+                    type: object
+                    properties:
+                      total: { type: integer }
+                      connected: { type: integer }
+
+  /api/sessions:
+    get:
+      summary: List sessions
+      tags: [Sessions]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessions:
+                    type: array
+                    items: { $ref: '#/components/schemas/Session' }
+    post:
+      summary: Create a session
+      description: Creates a session and seeds three demo bot rules when it has none.
+      tags: [Sessions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, maxLength: 64, example: main }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session: { $ref: '#/components/schemas/Session' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /api/sessions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      summary: Session details + stats
+      tags: [Sessions]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session: { $ref: '#/components/schemas/Session' }
+                  stats:
+                    type: object
+                    properties:
+                      messages: { type: integer }
+                      rules: { type: integer }
+                      chats: { type: integer }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      summary: Delete session
+      description: Stops the socket and deletes the session, its history and its rules.
+      tags: [Sessions]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OkResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/sessions/{id}/connect:
+    post:
+      summary: Start the WhatsApp connection
+      description: Opens the Baileys socket. A QR is issued if no stored credentials exist.
+      tags: [Sessions]
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  session: { $ref: '#/components/schemas/Session' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/sessions/{id}/disconnect:
+    post:
+      summary: Disconnect (keep credentials)
+      tags: [Sessions]
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  session: { $ref: '#/components/schemas/Session' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/sessions/{id}/logout:
+    post:
+      summary: Log out and clear credentials
+      tags: [Sessions]
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  session: { $ref: '#/components/schemas/Session' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/sessions/{id}/qr:
+    get:
+      summary: Fetch the current QR code
+      description: Returns a PNG data URL while the session waits for a scan (valid ~60 s).
+      tags: [Sessions]
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  qr: { type: string, nullable: true, description: 'data:image/png;base64,…' }
+                  raw: { type: string, nullable: true }
+                  generatedAt: { type: string, format: date-time, nullable: true }
+                  expiresInSec: { type: integer, example: 60 }
+                  message: { type: string, nullable: true }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/sessions/{id}/webhook:
+    put:
+      summary: Set or clear the event webhook URL
+      tags: [Webhooks]
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url: { type: string, nullable: true, example: 'https://example.com/wa-hook' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  session: { $ref: '#/components/schemas/Session' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/sessions/{id}/webhook/test:
+    post:
+      summary: Send a sample webhook payload
+      tags: [Webhooks]
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Delivery attempt result (ok=false means the POST failed)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  httpStatus: { type: integer, nullable: true }
+                  error: { type: string, nullable: true }
+                  url: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/sessions/{id}/bot:
+    put:
+      summary: Enable or disable the auto-reply bot
+      tags: [Sessions]
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  session: { $ref: '#/components/schemas/Session' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/sessions/{id}/messages/chats:
+    get:
+      summary: Chat list
+      description: One entry per chat JID with the last message and total stored count.
+      tags: [Messages]
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  chats:
+                    type: array
+                    items: { $ref: '#/components/schemas/Chat' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/sessions/{id}/messages:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      summary: Message history
+      description: Returns messages in chronological order (oldest first of the page).
+      tags: [Messages]
+      parameters:
+        - name: chatJid
+          in: query
+          schema: { type: string }
+          description: Filter to one chat JID
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: before
+          in: query
+          schema: { type: string, format: date-time }
+          description: Only messages older than this timestamp
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages:
+                    type: array
+                    items: { $ref: '#/components/schemas/Message' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      summary: Send a message
+      description: Requires the session to be connected (409 otherwise). Send timeout 60 s.
+      tags: [Messages]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SendRequest' }
+            examples:
+              text:
+                value: { to: '15551234567', type: text, text: 'hello!' }
+              image:
+                value:
+                  to: '15551234567'
+                  type: image
+                  mediaUrl: 'https://example.com/cat.jpg'
+                  caption: nice
+              document:
+                value:
+                  to: '15551234567'
+                  type: document
+                  mediaUrl: 'https://example.com/invoice.pdf'
+                  filename: invoice.pdf
+              location:
+                value: { to: '15551234567', type: location, lat: -1.2921, lng: 36.8219 }
+      responses:
+        '201':
+          description: Sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { $ref: '#/components/schemas/Message' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Session is not connected
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+
+  /api/sessions/{id}/rules:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      summary: List auto-reply rules
+      tags: [Rules]
+      responses:
+        '200':
+          description: OK (priority descending)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rules:
+                    type: array
+                    items: { $ref: '#/components/schemas/Rule' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      summary: Create a rule
+      tags: [Rules]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RuleInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rule: { $ref: '#/components/schemas/Rule' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/sessions/{id}/rules/{ruleId}:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+      - name: ruleId
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      summary: Partially update a rule
+      tags: [Rules]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RuleInput' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rule: { $ref: '#/components/schemas/Rule' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      summary: Delete a rule
+      tags: [Rules]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OkResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: 'Alternatively pass ?api_key= as a query parameter.'
+  parameters:
+    SessionId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+      description: Session id (cuid)
+  responses:
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Session, rule or route not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Conflict:
+      description: Duplicate session name
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    PayloadTooLarge:
+      description: Body exceeds 25 MB or media exceeds MAX_MEDIA_BYTES
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error: { type: string }
+    OkResponse:
+      type: object
+      properties:
+        ok: { type: boolean, example: true }
+    Session:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        status:
+          type: string
+          enum: [disconnected, connecting, qr, connected, reconnecting, logged_out]
+        botEnabled: { type: boolean }
+        webhookUrl: { type: string, nullable: true }
+        connectedJid: { type: string, nullable: true }
+        connectedPhone: { type: string, nullable: true }
+        lastConnectedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        hasCredentials: { type: boolean }
+        reconnectAttempt: { type: integer }
+        qrAvailable: { type: boolean }
+    Chat:
+      type: object
+      properties:
+        remoteJid: { type: string, example: '15551234567@s.whatsapp.net' }
+        isGroup: { type: boolean }
+        lastMessage:
+          type: object
+          properties:
+            fromMe: { type: boolean }
+            type: { type: string }
+            body: { type: string, nullable: true }
+            timestamp: { type: string, format: date-time }
+        totalMessages: { type: integer }
+    Message:
+      type: object
+      properties:
+        id: { type: string }
+        sessionId: { type: string }
+        waMessageId: { type: string, nullable: true }
+        remoteJid: { type: string }
+        senderJid: { type: string, nullable: true }
+        pushName: { type: string, nullable: true }
+        fromMe: { type: boolean }
+        type:
+          type: string
+          enum: [text, image, video, document, location, contact, audio, sticker, reaction, other]
+        body: { type: string, nullable: true }
+        mediaMime: { type: string, nullable: true }
+        status:
+          type: string
+          enum: [received, sent, delivered, read, failed]
+        error: { type: string, nullable: true }
+        timestamp: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+    SendRequest:
+      type: object
+      required: [to]
+      properties:
+        to:
+          type: string
+          description: 'Phone digits (international format) or full JID such as <id>@g.us'
+        type:
+          type: string
+          enum: [text, image, video, document, location]
+          default: text
+        text: { type: string, description: Required for type=text }
+        caption: { type: string, description: image/video/document }
+        mediaUrl: { type: string, description: image/video/document — gateway downloads it }
+        mediaBase64: { type: string, description: 'image/video/document — raw base64 or data: URL' }
+        mimetype: { type: string }
+        filename: { type: string, description: document }
+        lat: { type: number, minimum: -90, maximum: 90, description: location }
+        lng: { type: number, minimum: -180, maximum: 180, description: location }
+    RuleInput:
+      type: object
+      properties:
+        matchType:
+          type: string
+          enum: [exact, contains, starts_with, regex]
+          default: contains
+        keyword:
+          type: string
+          description: Required on create; for regex it must compile (case-insensitive flag)
+        reply: { type: string }
+        enabled: { type: boolean, default: true }
+        priority: { type: integer, default: 0 }
+    Rule:
+      allOf:
+        - $ref: '#/components/schemas/RuleInput'
+        - type: object
+          properties:
+            id: { type: string }
+            sessionId: { type: string }
+            hits: { type: integer }
+            createdAt: { type: string, format: date-time }
+    WebhookEnvelope:
+      type: object
+      description: Event delivery envelope (POSTed to the session webhookUrl)
+      properties:
+        event:
+          type: string
+          enum: [message.received, message.sent, bot.autoreplied, connection.qr,
+                 connection.open, connection.closed, connection.logged_out, webhook.test]
+        sessionId: { type: string }
+        session: { type: string, description: Session name }
+        timestamp: { type: string, format: date-time }
+        data: { type: object }

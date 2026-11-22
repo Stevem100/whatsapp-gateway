@@ -54,6 +54,10 @@ directly with curl - every request needs the header `x-api-key: <your key>`.
 
 Base URL: `/api` - all routes except `/health` require `x-api-key`.
 
+> Full endpoint-by-endpoint reference: [`docs/API.md`](./docs/API.md) -
+> machine-readable spec: [`docs/openapi.yaml`](./docs/openapi.yaml) (OpenAPI 3.0,
+> import into Postman/Swagger UI).
+
 ### Sessions
 
 | Method | Path | Body / notes |
