@@ -8,7 +8,7 @@ generator client {
   // rhel-* targets cover cPanel shared servers (CloudLinux / CentOS / AlmaLinux).
   // debian-openssl-1.1.x covers servers where Prisma detects Debian-family
   // OpenSSL 1.1 at runtime (some cPanel/LSWS nodes report this way).
-  binaryTargets = ["native", "rhel-openssl-1.1.x", "rhel-openssl-3.0.x", "debian-openssl-1.1.x"]
+  binaryTargets = ["native", "debian-openssl-1.0.x", "debian-openssl-1.1.x", "rhel-openssl-1.1.x", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
